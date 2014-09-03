@@ -42,22 +42,22 @@ class SoclozNsqExtension extends Extension
         $def->addMethodCall('setStubMode', array($config['stub']));
         foreach ($config['topics'] as $name => $conf) {
             $def->addMethodCall('setTopic', array($name, $conf));
-            if ($conf['consumers']) {
-                foreach ($conf['consumers'] as $channel => $service) {
-                    $def->addMethodCall('setTopicConsumer', array(
-                        $name,
-                        $channel,
-                        new Reference($service)
-                    ));
-                }
-            }
-            $tsd = new Definition(
-                'Socloz\NsqBundle\Topic\Topic',
-                array($name)
-            );
+
+            $tsd = new Definition('Socloz\NsqBundle\Topic\Topic', array($name));
             $tsd->setFactoryService('socloz.nsq');
             $tsd->setFactoryMethod('getTopic');
+
             $container->setDefinition('socloz.nsq.topic.' . $name, $tsd);
+        }
+
+        foreach ($config['topics'] as $name => $conf) {
+            if (false == $conf['consumers']) {
+                continue;
+            }
+
+            foreach ($conf['consumers'] as $channel => $service) {
+                $def->addMethodCall('setTopicConsumer', array($name, $channel, new Reference($service)));
+            }
         }
     }
 }
