@@ -2,17 +2,17 @@
 
 namespace Socloz\NsqBundle;
 
-use Symfony\Component\HttpKernel\Bundle\Bundle;
+use Socloz\NsqBundle\DependencyInjection\Compiler\RegisterEventListenerPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Socloz\NsqBundle\DependencyInjection\ConsumerCompilerPass;
+use Symfony\Component\HttpKernel\Bundle\Bundle;
 
 class SoclozNsqBundle extends Bundle
 {
     /**
-     * {@inheritDoc}
+     * {@inheritdoc}
      */
     public function build(ContainerBuilder $container)
     {
-        $container->addCompilerPass(new ConsumerCompilerPass());
+        $container->addCompilerPass(new RegisterEventListenerPass());
     }
 }

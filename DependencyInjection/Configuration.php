@@ -3,9 +3,13 @@
 namespace Socloz\NsqBundle\DependencyInjection;
 
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
-use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
-use Symfony\Component\Config\Definition\Builder\NodeBuilder;
+
+/**
+ * requeue_strategy
+ *   [~|true] - set defaults
+ *   [false] - disable
+ */
 
 /**
  * This is the class that validates and merges configuration from your app/config files
@@ -21,53 +25,50 @@ class Configuration implements ConfigurationInterface
     {
         $treeBuilder = new TreeBuilder();
         $rootNode = $treeBuilder->root('socloz_nsq');
-        $node = $rootNode
+        $rootNode
             ->children()
-                ->arrayNode('lookupd_hosts')
-                    ->prototype('scalar')
-                    ->end()
-                ->end()
-                ->booleanNode('stub')
-                    ->defaultValue(false)
-                ->end()
-                ->arrayNode('delayed_messages_topic')
-                    ->addDefaultsIfNotSet()
-                    ->children()
-                        ->scalarNode('publish_to')
-                            ->defaultValue('localhost')
-                        ->end()
-                        ->arrayNode('requeue_strategy')
-                            ->addDefaultsIfNotSet()
-                            ->children()
-                                ->scalarNode('max_attempts')
-                                    ->defaultValue('5')
-                                ->end()
-                                ->arrayNode('delays')
-                                    ->prototype('scalar')
+                ->arrayNode('connections')
+                    ->useAttributeAsKey('name')
+                    ->requiresAtLeastOneElement()
+                    ->prototype('array')
+                        ->children()
+                            ->arrayNode('lookupd_hosts')
+                                ->defaultValue([])
+                                ->treatFalseLike([])
+                                ->treatNullLike([])
+                                ->prototype('scalar')->end()
+                            ->end()
+                            ->arrayNode('publish_to')
+                                ->requiresAtLeastOneElement()
+                                ->defaultValue(['127.0.0.1:4150'])
+                                ->prototype('scalar')->end()
+                            ->end()
+                            ->arrayNode('requeue_strategy')
+                                ->canBeDisabled()
+                                ->addDefaultsIfNotSet()
+                                ->children()
+                                    ->scalarNode('max_attempts')->defaultValue(5)->end()
+                                    ->arrayNode('delays')
+                                        ->defaultValue(array(1000, 5000))
+                                        ->prototype('scalar')->end()
                                     ->end()
-                                    ->defaultValue(array('10000'))
                                 ->end()
                             ->end()
                         ->end()
                     ->end()
                 ->end()
                 ->arrayNode('topics')
+                    ->requiresAtLeastOneElement()
                     ->useAttributeAsKey('name')
                     ->prototype('array')
                         ->children()
-                            ->arrayNode('publish_to')
-                                ->requiresAtLeastOneElement()
-                                ->prototype('scalar')
-                                ->end()
-                            ->end()
-                            ->arrayNode('requeue_strategy')
+                            ->scalarNode('connection')->isRequired()->end()
+                            ->scalarNode('retries')->defaultValue(3)->end()
+                            ->scalarNode('retry_delay')->defaultValue(100)->end()
+                            ->arrayNode('requeue')
                                 ->children()
-                                    ->scalarNode('max_attempts')
-                                    ->end()
-                                    ->arrayNode('delays')
-                                        ->prototype('scalar')
-                                        ->end()
-                                    ->end()
+                                    ->scalarNode('connection')->isRequired()->end()
+                                    ->scalarNode('topic_name')->isRequired()->defaultValue('__requeue')->end()
                                 ->end()
                             ->end()
                             ->arrayNode('consumers')
@@ -80,6 +81,7 @@ class Configuration implements ConfigurationInterface
                 ->end()
             ->end()
         ;
+
         return $treeBuilder;
     }
 }
