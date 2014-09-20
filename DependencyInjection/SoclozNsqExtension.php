@@ -85,7 +85,7 @@ class SoclozNsqExtension extends Extension
 
             // connection factory
             $connectionFactory = new Definition('nsqphp\\Connection\\ConnectionFactory');
-            $connectionFactory->setArguments(array(3, 3 ,15, true));
+            $connectionFactory->setArguments(array(true));
             $connectionFactory->setPublic(false);
 
             $connectionFactoryId = $this->getTopicId($name) . '.connection_factory';
