@@ -33,18 +33,18 @@ class ConsumeTopicCommand extends BaseCommand
     {
         $quiet = $input->getOption('quiet');
         $channels = $input->getOption('channel');
-        $topic = $this->getTopicRegistry()->getTopic($input->getArgument('topic'));
+        $subscriber = $this->getNsqRegistry()->getSubscriber($input->getArgument('topic'));
 
-        false == $quiet && $topic->getEventDispatcher()->addSubscriber(new OutputLoggerSubscriber($output));
+        false == $quiet && $subscriber->getEventDispatcher()->addSubscriber(new OutputLoggerSubscriber($output));
 
-        $output->writeln(sprintf('Consume topic[<comment>%s</comment>] channels:[<comment>%s</comment>]', $topic->getName(), implode(', ', $channels)));
-        $topic->consume($channels, (int) $input->getOption('exit-after-timeout'), (int) $input->getOption('exit-after-messages'));
+        $output->writeln(sprintf('Consume topic[<comment>%s</comment>] channels:[<comment>%s</comment>]', $subscriber->getName(), implode(', ', $channels)));
+        $subscriber->consume($channels, (int) $input->getOption('exit-after-timeout'), (int) $input->getOption('exit-after-messages'));
     }
 
     /**
-     * @return \Socloz\NsqBundle\TopicRegistry
+     * @return \Socloz\NsqBundle\Registry
      */
-    public function getTopicRegistry()
+    public function getNsqRegistry()
     {
         return $this->getContainer()->get('socloz.nsq.registry');
     }

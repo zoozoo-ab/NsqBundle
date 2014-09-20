@@ -29,13 +29,60 @@ class SoclozNsqExtension extends Extension
         $configuration = new Configuration();
         $config = $this->processConfiguration($configuration, $configs);
 
-        $this->loadConnections($config, $container);
         $this->loadPublishers($config, $container);
         $this->loadSubscribers($config, $container);
-        $this->loadTopics($config, $container);
         $this->loadConsumers($config, $container);
+        $this->loadRegistry($config, $container);
     }
 
+    /**
+     * @param array            $config
+     * @param ContainerBuilder $container
+     */
+    protected function loadPublishers(array $config, ContainerBuilder $container)
+    {
+        foreach ($config['topics'] as $name => $topic) {
+            if (false == isset($config['connections'][$topic['connection']])) {
+                throw new \Exception(sprintf('Connection "%s" is missing', $topic['connection']));
+            }
+
+            $connectionConf = $config['connections'][$topic['connection']];
+
+            // Connection
+            list($host, $port) = explode(':', $connectionConf['publish_to']);
+
+            $connection = new Definition('nsqphp\\Connection\\Connection');
+            $connection->addArgument($host);
+            $connection->addArgument($port);
+            $connection->setPublic(false);
+
+            $connectionId = $this->getTopicId($name) . '.connection';
+            $container->setDefinition($connectionId, $connection);
+
+            // NsqPublisher
+            $nsqPublisher = new Definition('nsqphp\\NsqPublisher');
+            $nsqPublisher->addArgument(new Reference($connectionId));
+            $nsqPublisher->addArgument($connectionConf['retries']);
+            $nsqPublisher->addArgument($connectionConf['retry_delay']);
+            $nsqPublisher->setPublic(false);
+
+            $nsqPublisherId = $this->getTopicId($name) . '.nsq.pub';
+            $container->setDefinition($nsqPublisherId, $nsqPublisher);
+
+            // TopicPublisher
+            $topicPublisher = new Definition('Socloz\\NsqBundle\\Topic\\TopicPublisher');
+            $topicPublisher->addArgument($name);
+            $topicPublisher->addArgument(new Reference($nsqPublisherId));
+
+            $topicPublisherId = $this->getTopicId($name) . '.publisher';
+            $container->setDefinition($topicPublisherId, $topicPublisher);
+        }
+    }
+
+    /**
+     * @param array            $config
+     * @param ContainerBuilder $container
+     */
     protected function loadSubscribers(array $config, ContainerBuilder $container)
     {
         foreach ($config['topics'] as $name => $topic) {
@@ -43,21 +90,21 @@ class SoclozNsqExtension extends Extension
                 throw new \Exception(sprintf('Connection "%s" is missing', $topic['connection']));
             }
 
-            $connection = $config['connections'][$topic['connection']];
+            $connectionConf = $config['connections'][$topic['connection']];
 
             // event dispatcher
             $eventDispatcher = new Definition('Symfony\\Component\\EventDispatcher\\ContainerAwareEventDispatcher');
             $eventDispatcher->addArgument(new Reference('service_container'));
-            $eventDispatcher->addTag('socloz.nsq.event_dispatcher', array('connection' => $name));
+            $eventDispatcher->addTag('socloz.nsq.event_dispatcher', array('topic' => $name));
 
             $eventDispatcherId = $this->getTopicId($name) . '.event_dispatcher';
             $container->setDefinition($eventDispatcherId, $eventDispatcher);
 
             // lookupd
-            if ($connection['lookupd_hosts']) {
-                $lookupd = new Definition('nsqphp\Lookup\Nsqlookupd', array($connection['lookupd_hosts']));
+            if ($connectionConf['lookupd_hosts']) {
+                $lookupd = new Definition('nsqphp\Lookup\Nsqlookupd', array($connectionConf['lookupd_hosts']));
             } else {
-                $lookupd = new Definition('nsqphp\Lookup\FixedHosts', array($connection['publish_to']));
+                $lookupd = new Definition('nsqphp\Lookup\FixedHosts', array($connectionConf['publish_to']));
             }
 
             $lookupd->setPublic(false);
@@ -66,10 +113,10 @@ class SoclozNsqExtension extends Extension
             $container->setDefinition($lookupdId, $lookupd);
 
             // requeue_strategy
-            if ($connection['requeue_strategy']['enabled']) {
+            if ($connectionConf['requeue_strategy']['enabled']) {
                 $requeueStrategy = new Definition('nsqphp\RequeueStrategy\DelaysList');
-                $requeueStrategy->addArgument($connection['requeue_strategy']['max_attempts']);
-                $requeueStrategy->addArgument($connection['requeue_strategy']['delays']);
+                $requeueStrategy->addArgument($connectionConf['requeue_strategy']['max_attempts']);
+                $requeueStrategy->addArgument($connectionConf['requeue_strategy']['delays']);
                 $requeueStrategy->setPublic(false);
 
                 $requeueStrategyId = $this->getTopicId($name) . '.requeue_strategy';
@@ -77,7 +124,7 @@ class SoclozNsqExtension extends Extension
 
                 $requeueStrategySubscriber = new Definition('nsqphp\Event\Subscriber\RequeueSubscriber');
                 $requeueStrategySubscriber->addArgument(new Reference($requeueStrategyId));
-                $requeueStrategySubscriber->addTag('socloz.nsq.event_subscriber', array('connection' => $name));
+                $requeueStrategySubscriber->addTag('socloz.nsq.event_subscriber');
 
                 $requeueStrategySubscriberId = $this->getTopicId($name) . '.subscriber.requeue_strategy';
                 $container->setDefinition($requeueStrategySubscriberId, $requeueStrategySubscriber);
@@ -91,70 +138,23 @@ class SoclozNsqExtension extends Extension
             $connectionFactoryId = $this->getTopicId($name) . '.connection_factory';
             $container->setDefinition($connectionFactoryId, $connectionFactory);
 
-            // subscriber
-            $subscriber = new Definition('nsqphp\\NsqSubscriber');
-            $subscriber->addArgument(new Reference($lookupdId));
-            $subscriber->addArgument(new Reference($connectionFactoryId));
-            $subscriber->addMethodCall('setEventDispatcher', array(new Reference($eventDispatcherId)));
-            $subscriber->setPublic(false);
+            // NsqSubscriber
+            $nsqSubscriber = new Definition('nsqphp\\NsqSubscriber');
+            $nsqSubscriber->addArgument(new Reference($lookupdId));
+            $nsqSubscriber->addArgument(new Reference($connectionFactoryId));
+            $nsqSubscriber->addMethodCall('setEventDispatcher', array(new Reference($eventDispatcherId)));
+            $nsqSubscriber->setPublic(false);
 
-            $subscriberId = $this->getTopicId($name) . '.subscriber';
-            $container->setDefinition($subscriberId, $subscriber);
-        }
-    }
+            $nsqSubscriberId = $this->getTopicId($name) . '.nsq.sub';
+            $container->setDefinition($nsqSubscriberId, $nsqSubscriber);
 
-    protected function loadPublishers(array $config, ContainerBuilder $container)
-    {
-        foreach ($config['topics'] as $name => $topic) {
-            $definition = new Definition('nsqphp\\NsqPublisher');
-            $definition->addArgument(new Reference($this->getConnectionId($topic['connection'])));
-            $definition->addArgument($topic['retries']);
-            $definition->addArgument($topic['retry_delay']);
-            $definition->setPublic(false);
+            // TopicSubscriber
+            $topicSubscriber = new Definition('Socloz\\NsqBundle\\Topic\\TopicSubscriber');
+            $topicSubscriber->addArgument($name);
+            $topicSubscriber->addArgument(new Reference($nsqSubscriberId));
 
-            $container->setDefinition($this->getTopicId($name) . '.publisher', $definition);
-        }
-    }
-
-    /**
-     * @param array            $config
-     * @param ContainerBuilder $container
-     */
-    protected function loadConnections(array $config, ContainerBuilder $container)
-    {
-        foreach ($config['connections'] as $name => $connection) {
-            list($host, $port) = explode(':', $connection['publish_to'][0]);
-
-            $nsq = new Definition('nsqphp\\Connection\\Connection');
-            $nsq->addArgument($host);
-            $nsq->addArgument($port);
-            $nsq->setPublic(false);
-
-            $container->setDefinition($this->getConnectionId($name), $nsq);
-        }
-    }
-
-    /**
-     * @param array            $config
-     * @param ContainerBuilder $container
-     *
-     * @throws \Exception
-     */
-    protected function loadTopics(array $config, ContainerBuilder $container)
-    {
-        $registry = $container->getDefinition('socloz.nsq.registry');
-
-        foreach ($config['topics'] as $name => $topic) {
-            $definition = new Definition('Socloz\\NsqBundle\\Topic\\Topic');
-            $container->setDefinition($this->getTopicId($name), $definition);
-            $registry->addMethodCall('addTopicId', array($name, $this->getTopicId($name)));
-
-            $publisherId = $this->getTopicId($name) . '.publisher';
-            $subscriberId = $this->getTopicId($name) . '.subscriber';
-
-            $definition->addArgument(new Reference($publisherId));
-            $definition->addArgument(new Reference($subscriberId));
-            $definition->addArgument($name);
+            $topicSubscriberId = $this->getTopicId($name) . '.subscriber';
+            $container->setDefinition($topicSubscriberId, $topicSubscriber);
         }
     }
 
@@ -165,30 +165,29 @@ class SoclozNsqExtension extends Extension
     protected function loadConsumers(array $config, ContainerBuilder $container)
     {
         foreach ($config['topics'] as $topicName => $topicConfig) {
-            $consumerCollectionDefinition = new Definition('Socloz\\NsqBundle\\ConsumerCollection');
-            $consumerCollectionDefinition->addArgument(new Reference('service_container'));
-            $consumerCollectionDefinition->setPublic(false);
-
-            $consumerCollectionId = $this->getTopicId($topicName) . '.consumer_collection';
-            $container->setDefinition($consumerCollectionId, $consumerCollectionDefinition);
-
-            $topicDefinition = $container->getDefinition($this->getTopicId($topicName));
-            $topicDefinition->addMethodCall('setConsumers', [new Reference($consumerCollectionId)]);
+            $subscriber = $container->getDefinition($this->getTopicId($topicName) . '.subscriber');
 
             foreach ($topicConfig['consumers'] as $channelName => $consumerServiceId) {
-                $consumerCollectionDefinition->addMethodCall('addConsumerId', [$channelName, $consumerServiceId]);
+                $subscriber->addMethodCall('addConsumer', [$channelName, new Reference($consumerServiceId)]);
             }
         }
     }
 
     /**
-     * @param string $name
-     *
-     * @return string
+     * @param array            $config
+     * @param ContainerBuilder $container
      */
-    protected function getConnectionId($name)
+    protected function loadRegistry(array $config, ContainerBuilder $container)
     {
-        return 'socloz.nsq.connection.' . $name;
+        $registry = $container->getDefinition('socloz.nsq.registry');
+
+        foreach ($config['topics'] as $topicName => $topicConfig) {
+            $publisherId = $this->getTopicId($topicName) . '.publisher';
+            $subscriberId = $this->getTopicId($topicName) . '.subscriber';
+
+            $registry->addMethodCall('addPublisherServiceId', array($topicName, $publisherId));
+            $registry->addMethodCall('addSubscriberServiceId', array($topicName, $subscriberId));
+        }
     }
 
     /**

@@ -13,13 +13,13 @@ class RegisterEventListenerPass implements CompilerPassInterface
     {
         $eventDispatchers = [];
         foreach ($container->findTaggedServiceIds('socloz.nsq.event_dispatcher') as $id => $arguments) {
-            $eventDispatchers[$arguments[0]['connection']] = $container->getDefinition($id);
+            $eventDispatchers[$arguments[0]['topic']] = $container->getDefinition($id);
         }
 
         foreach ($container->findTaggedServiceIds('socloz.nsq.event_subscriber') as $id => $arguments) {
             $eventSubscriber = $container->getDefinition($id);
 
-            if (false == isset($arguments[0]['connection'])) {
+            if (false == isset($arguments[0]['topic'])) {
                 foreach ($eventDispatchers as $eventDispatcher) {
                     $eventDispatcher->addMethodCall('addSubscriberService', array($id, $eventSubscriber->getClass()));
                 }
@@ -27,11 +27,11 @@ class RegisterEventListenerPass implements CompilerPassInterface
                 continue;
             }
 
-            if (false == isset($eventDispatchers[$arguments[0]['connection']])) {
+            if (false == isset($eventDispatchers[$arguments[0]['topic']])) {
                 throw new \InvalidArgumentException(sprintf('Unknown connection name "%s" for subscriber "%s"', $arguments[0]['connection'], $id));
             }
 
-            $eventDispatchers[$arguments[0]['connection']]->addMethodCall('addSubscriberService', array($id, $eventSubscriber->getClass()));
+            $eventDispatchers[$arguments[0]['topic']]->addMethodCall('addSubscriberService', array($id, $eventSubscriber->getClass()));
         }
     }
 }

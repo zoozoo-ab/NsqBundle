@@ -3,7 +3,7 @@ parameters:
 
 services:
     socloz.nsq.registry:
-        class: Socloz\NsqBundle\TopicRegistry
+        class: Socloz\NsqBundle\Registry
         arguments:
             - @service_container
 
